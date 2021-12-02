@@ -1,0 +1,47 @@
+/bin/
+/log/
+/data/
+/secure_data/
+/inst/
+/.settings/
+CMakeFiles
+*.deb
+Makefile
+CMakeCache.txt
+install_manifest.txt
+cmake_install.cmake
+callgrind*
+# Prerequisites
+*.d
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+/private/
+.cache
