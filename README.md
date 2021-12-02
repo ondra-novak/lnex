@@ -1,2 +1,4 @@
-# lnex
-Lightning Network P2P exchange (CZ)
+# LNEX
+Projekt české P2P směnárny (CZK<->BTC) s použitím LN sítě
+
+Hrubě rozpracováno.
