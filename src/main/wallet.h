@@ -13,6 +13,8 @@
 #include <userver/http_client.h>
 #include <userver_jsonrpc/rpcClient.h>
 
+#include "invoice.h"
+
 namespace lnex {
 
 struct WalletConfig {
@@ -44,12 +46,14 @@ public:
 	Wallet(const WalletConfig &cfg, userver::HttpClientCfg &&httpc);
 
 	json::Value listRequests() const;
-	json::Value addRequest(double amount, const json::String &message);
-	json::Value addLnRequest(double amount, const json::String &message);
+	json::Value addRequest(Satoshi amount, const json::String &message);
+	json::Value addLnRequest(Satoshi amount, const json::String &message);
 	json::Value removeRequest(const json::String &reqId);
 	json::Value balance() const;
+	json::Value decodeInvoice(const json::String &invoice) const;
 
 	LNPayResult lnpay(const json::String invoice);
+
 
 
 protected:
@@ -77,14 +81,8 @@ public:
 	WalletControl(const WalletConfig &cfg, userver::HttpClientCfg &&httpc, PaymentCallback &&cb, WalletMonitor &&wm);
 
 
-
-	struct Invoice {
-		json::String id;
-		json::String request;
-		std::chrono::system_clock::time_point expiration;
-	};
-
-	Invoice createInvoice(bool lightning, double amount, const json::String &message);
+	Invoice createInvoice(bool lightning, Satoshi amount, const json::String &message);
+	Invoice parseInvoice(const json::String &message);
 
 
 	static std::size_t start(ondra_shared::SharedObject<WalletControl> me, ondra_shared::Scheduler sch);

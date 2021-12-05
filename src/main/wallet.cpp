@@ -38,18 +38,36 @@ json::Value Wallet::listRequests() const {
 	return rpc_client("list_requests", json::array);
 }
 
-json::Value Wallet::addRequest(double amount, const json::String &message) {
-	char numbuff[100];
-	sprintf(numbuff, "%1.8f",amount);
-	return rpc_client("add_request", {
-			json::Value::preciseNumber(numbuff), message, 24*60*60*7} );
+char *numToText(char *buff, std::uint64_t amount, int zeroes) {
+	if (amount || zeroes>0) {
+		char *c = numToText(buff, amount/10, zeroes-1);
+		*c = (amount % 10) + '0';
+		c++;
+		return c;
+	} else {
+		return buff;
+	}
 }
 
-json::Value Wallet::addLnRequest(double amount, const json::String &message) {
-	char numbuff[100];
-	sprintf(numbuff, "%1.8f",amount);
-	return rpc_client("add_lightning_request", {
-			json::Value::preciseNumber(numbuff), message});
+
+json::Value satoshiToBTC(Satoshi amount) {
+	char buff[50];
+	char *c = buff;
+	char *d = c;
+	auto btcs = amount / 100000000;
+	auto sats = amount % 100000000;
+	d = numToText(d, btcs, 1);
+	*d++ = '.';
+	d = numToText(d, sats, 8);
+	return json::Value::preciseNumber(std::string_view(c, d-c));
+}
+
+json::Value Wallet::addRequest(Satoshi amount, const json::String &message) {
+	return rpc_client("add_request", {satoshiToBTC(amount), message, 24*60*60*7} );
+}
+
+json::Value Wallet::addLnRequest(Satoshi amount, const json::String &message) {
+	return rpc_client("add_lightning_request", {satoshiToBTC(amount), message});
 }
 
 json::Value Wallet::removeRequest(const json::String &reqId) {
@@ -69,13 +87,14 @@ static std::chrono::system_clock::time_point expiration(json::Value r) {
 	return std::chrono::system_clock::from_time_t(exptm);
 }
 
-WalletControl::Invoice WalletControl::createInvoice(bool lightning, double amount, const json::String &message) {
+Invoice WalletControl::createInvoice(bool lightning, Satoshi amount, const json::String &message) {
 	if (lightning) {
 		json::Value r = addLnRequest(amount, message);
 		return {
 			r["rhash"].toString(),
 			r["invoice"].toString(),
-			expiration(r)
+			expiration(r),
+			amount
 		};
 	}
 	else {
@@ -84,7 +103,8 @@ WalletControl::Invoice WalletControl::createInvoice(bool lightning, double amoun
 		return {
 			r["address"].toString(),
 			r["URI"].toString(),
-			expiration(r)
+			expiration(r),
+			amount
 		};
 	}
 
@@ -95,6 +115,10 @@ std::size_t WalletControl::start(ondra_shared::SharedObject<WalletControl> me,
 	return sch.each(std::chrono::seconds(2)) >> [me]() mutable {
 		me.lock()->checkState();
 	};
+}
+
+Invoice WalletControl::parseInvoice(const json::String &message) {
+
 }
 
 void WalletControl::checkState() {
@@ -136,6 +160,12 @@ void WalletControl::checkState() {
 
 json::Value Wallet::balance() const {
 	return rpc_client("getbalance", json::array);
+}
+
+json::Value Wallet::decodeInvoice(const json::String &invoice) const {
+	json::RpcResult res =rpc_client("decode_invoice", json::Value(json::array,{invoice}));
+	if (res.isError()) return nullptr;
+	return res;
 }
 
 LNPayResult Wallet::lnpay(const json::String invoice) {
