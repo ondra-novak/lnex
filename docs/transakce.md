@@ -2,17 +2,10 @@
 
 ```
 {
-	"buyer": {
-		"uid":"",
-		"bank_connection":"",
-		"iban":""
-	},
-	"seller":{
-		"uid":"",
-		"bank_connection":""
-		"iban":""
-	},
+	"buyer": ""
+	"seller": ""
 	"order":"",
+	"withdraw":true/false
 	"wire":{
 		"ref":"",
 		"vs":"",
@@ -22,8 +15,9 @@
 	},
 	"asset":{
 		"invoice":"",
+		"type":"ln|address"
 		"amount":"",
-		"expiration":"",
+		"fee":"",
 	},
 	"state": {
 		"send":{
@@ -56,16 +50,20 @@
 			"filled":true/false,
 		},		
 	},
-	"status": "open/filled/attantion/refund/canceled",
+	"status": "created/open/open_recv/open_send/filled/attantion/refund/canceled",
 	"status_timestamp: 0,
 
 }
 	
 ```
 
-* **buyer** -  informace o kupujícím - uid uživatele, typ účtu, id účtu, a iban (pro kontrolu)
-* **seller**-  informace o kupujícím - uid uživatele, typ účtu, id účtu, a iban
+* **buyer** -  ID bankovního spojení na kupujícího
+* **seller**-  ID bankovního spojení na prodávajícího
 * **order** -  ID pokynu, který je zdrojem této směny (seller)
+* **withdraw** - pokud je nastaveno na true, pak se nejedna o směnu, ale withdraw. V takovém případě
+				se používají pouze informace **asset** a **state/withdraw** a **status**
+				Pokud je směna vytvořena s tímto příznakem, tak po zamčení balance se přepne do stavu
+				**filled** a mohou se coiny odeslat
 * **wire** - informace o platbě 
 				- ref - reference (zpráva pro příjemce)
 				- vs - variablni symbol
@@ -76,7 +74,9 @@
 * **asset** - Informace o kryptu
 				- amount - objem koupeného krypta
 				- invoice - LN invoice
-				- expiration - expirace invoice
+				- type - typ invoice
+				- fee - fee zaplacené za směnu (blokuje se o fee více)
+				
 * **state** - stav směny
 				- send - stav zaslané platby			
 				- receive - stav přijaté platby
@@ -91,7 +91,11 @@
 * **status** - postavení (status)
 				- created - směna je vytvořena, čeká se na kupujícího až potvrdí objednávku
 						- částka je blokovaná
-				- open - směna je otevřena, probíhá plnění
+				- open - směna je otevřena, probíhá plnění - zatím nic nevyplněno
+						- částka je blokovaná
+				- open_recv - směna je otevřena, probíhá plnění - čeká se na přichod platby (odeslano)
+						- částka je blokovaná
+				- open_send - směna je otevřena, probíhá plnění - čeká se na potvrzení platby (přijato)
 						- částka je blokovaná
 				- filled - směna je dokončena a může být vyplacena
 						- částka je blokovaná
@@ -101,6 +105,8 @@
 						- částka je blokovaná
 				- canceled - transakce byla stornována, 
 						- čáska není blokována
+				- proměnná status neexistuje, pak je ve fázi vytváření. Vytvoření směny vyžaduje
+				  asynchroní potvrzení pro zamknutí balance.
 										
 * **status_timestamp** - timestamp změny statusu
 
@@ -209,6 +215,19 @@ Pokud invoice vyprší, musí uživatel vložit jiné
 
 není timeout
 
+# Deposit
+
+Deposit slouží k naplnění orderu
+
+```
+{
+	"order": "",
+	"amount": 0,
+	"filled": false/true,
+	"invoice: "invoice text",
+	"expiration": 0,
+}
+```
 
 # Monitoring bank
 

@@ -82,7 +82,7 @@ public:
 
 
 	Invoice createInvoice(bool lightning, Satoshi amount, const json::String &message);
-	Invoice parseInvoice(const json::String &message);
+	Invoice parseInvoice(const json::String &invoice);
 
 
 	static std::size_t start(ondra_shared::SharedObject<WalletControl> me, ondra_shared::Scheduler sch);

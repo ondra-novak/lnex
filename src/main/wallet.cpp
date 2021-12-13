@@ -117,8 +117,18 @@ std::size_t WalletControl::start(ondra_shared::SharedObject<WalletControl> me,
 	};
 }
 
-Invoice WalletControl::parseInvoice(const json::String &message) {
-
+Invoice WalletControl::parseInvoice(const json::String &invoice) {
+	json::Value v = decodeInvoice(invoice);
+	if (v.hasValue()) {
+		return Invoice{
+			v["rhash"].toString(),
+			v["invoice"].toString(),
+			std::chrono::system_clock::from_time_t(v["time"].getUIntLong())+std::chrono::seconds(v["exp"].getUIntLong()),
+			Satoshi((v["amount_msat"].getNumber()+999)/1000)
+		};
+	} else {
+		return Invoice {json::String(),invoice, std::chrono::system_clock::from_time_t(0),0};
+	}
 }
 
 void WalletControl::checkState() {
