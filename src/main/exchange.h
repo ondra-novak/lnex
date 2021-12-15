@@ -80,11 +80,14 @@ public:
 	///Searchs open trades, if trade found, it is market apropriately
 	/**
 	 * @param wident wire identification
-	 * @retval true processed recorded, exe
-	 * @retval false wident was not identified
 	 */
-	bool processWireTransfer(const WireIdent &wident);
-
+	void processWireTransfer(const WireIdent &wident);
+	///Determines, whether bank connection is still active
+	/**
+	 * @retval true still active, reschedule
+	 * @retval false no longer active, don't monitor
+	 */
+	bool isStillActiveConnection(const json::String &connection) const;
 
 
 

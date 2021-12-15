@@ -20,22 +20,16 @@
 		"fee":"",
 	},
 	"state": {
-		"send":{
-			"txs":[{
+		"send":[{
 					"timestamp":0,
 					"amount":0,
 					"id":0
-				  }]
-			"filled":true/false,
-		},
-		"receive":{
-			"txs":[{
+		 }],
+		"receive":[{
 					"timestamp":0,
 					"amount":0,
 					"id":0
-				  }]
-			"filled":true/false,
-		},
+		 }],		
 		"withdraw":{
 			"filled":true/false,
 			"timestamp":0,

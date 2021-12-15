@@ -2,14 +2,18 @@
 #include <shared/default_app.h>
 #include <couchit/config.h>
 #include <couchit/couchDB.h>
+#include <userver/http_client.h>
+#include <userver/ssl.h>
 #include "../couchit/src/couchit/changes.h"
 #include "../userver/static_webserver.h"
 #include "server.h"
+#include "walletsvc.h"
 
 int main(int argc, char **argv) {
 
 	using namespace userver;
 	using namespace ondra_shared;
+	using namespace lnex;
 
 	ondra_shared::DefaultApp app({}, std::cerr);
 
@@ -26,6 +30,15 @@ int main(int argc, char **argv) {
 	unsigned int dispatchers = section_server["dispatchers"].getUInt(1);
 	unsigned int maxupload = section_server.mandatory["max_upload_mb"].getUInt()*1024*1024;
 
+	auto section_wallet = app.config["wallet"];
+	std::optional<WalletConfig> wcfg;
+	if (section_wallet["enabled"].getBool(false)) {
+		wcfg.emplace();
+		wcfg->login = section_wallet.mandatory["login"].getString();
+		wcfg->password= section_wallet.mandatory["password"].getString();
+		wcfg->url= section_wallet.mandatory["url"].getString();
+	}
+
 	logProgress("---------- SERVER STAR ---------");
 	for (const auto &x: bind_addr) logInfo("Listen: $1", x.toString(false));
 
@@ -39,14 +52,23 @@ int main(int argc, char **argv) {
 	dbcfg.databaseName = section_db.mandatory["db_name"].getString();
 
 	auto section_www = app.config["www"];
-	userver::StaticWebserver::Config cfg;
-	cfg.cachePeriod = section_www["cache"].getUInt();
-	cfg.document_root = section_www.mandatory["document_root"].getPath();
-	cfg.indexFile = section_www.mandatory["index_file"].getString();
+	std::optional<userver::StaticWebserver::Config> www_cfg;
+	if (section_www["enabled"].getBool()) {
+		www_cfg.emplace();
+		www_cfg->cachePeriod = section_www["cache"].getUInt();
+		www_cfg->document_root = section_www.mandatory["document_root"].getPath();
+		www_cfg->indexFile = section_www.mandatory["index_file"].getString();
+	}
 
 	couchit::CouchDB couchdb(dbcfg);
 	couchit::ChangesDistributor chdist(couchdb,true,true);
+	ondra_shared::Scheduler sch = sch.create();
 
+
+	if (wcfg.has_value()) {
+		auto wallet = std::make_shared<WalletService>(couchdb,*wcfg, HttpClientCfg{"lnex.cz"});
+		wallet->init(wallet, chdist, sch);
+	}
 
 
 	MyHttpServer server;
@@ -55,23 +77,19 @@ int main(int argc, char **argv) {
 	});
 	server.add_listMethods();
 	server.add_ping();
-/*
-	server.addPath("/changes", [changes](std::unique_ptr<userver::HttpServerRequest> &req, std::string_view  ){
-		auto last_id = req->get("Last-Event-ID");
-		Value since;
-		if (!last_id.empty()) since = last_id; else since = "0";
-		req->setStatus(200);
-		req->set("Cache-Control","no-cache");
-		req->setContentType("text/event-stream");
-		req->set("Connection","close");
-		req->set("X-Accel-Buffering","no");
-		changes->registerStream(std::move(req), since);
-		return true;
-	});*/
-	server.addPath("", StaticWebserver(cfg));
+	if (www_cfg.has_value()) {
+		server.addPath("", StaticWebserver(*www_cfg));
+	}
 
 
 	server.start(bind_addr, threads, dispatchers);
+
+
+
+	sch.immediate() >> [provider = server.getAsyncProvider()]{
+		userver::setThreadAsyncProvider(provider);
+	};
+
 
 	chdist.runService([&]{
 		userver::setThreadAsyncProvider(server.getAsyncProvider());

@@ -7,5 +7,6 @@ add_executable (lnex
 		user.cpp
 		exchange.cpp
 		withdraw.cpp
+		walletsvc.cpp
 )
 target_link_libraries (lnex LINK_PUBLIC userver_jsonrpc couchit userver imtjson gd stdc++fs crypto pthread)

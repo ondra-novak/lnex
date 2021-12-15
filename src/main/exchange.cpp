@@ -78,11 +78,11 @@ function(doc) {
 	if (doc._id.substr(0,3) == "ex.") {
 		var status = doc.status;
 		if (status) {
-			var cm = status == "open" || status == "open_recv" || status == "open_send" || status == "attantion" || status == "refund";  			
-			if (cm || status == "canceled") {
-					emit([true, doc.buyer],"buyer");
-					emit([false, doc.seller],"seller");
-					emit([true, doc.seller],"refund");
+			var cm = status == "open" || status == "open_recv" || status == "open_send" || status == "attantion" || status == "refund"  || status == "canceled";  			
+			if (cm) {
+					emit([true, doc.buyer],["buyer",doc.seller]);
+					emit([false, doc.seller],["seller",doc.buyer]);
+					emit([true, doc.seller],["refund"]);
 			}
 			if (cm || status == "created") {
 				emit(true, [doc.status_timestamp, status]);
@@ -334,8 +334,139 @@ void Exchange::lockOrderBalance(const json::Value &exchangeDoc) {
 	db.put(doc);
 }
 
-bool Exchange::processWireTransfer(const WireIdent &wident) {
-	return false;
+static auto sumAmount(json::Value txs) {
+	return txs.reduce([](std::uint64_t cents, json::Value z){
+		return cents + z["amount"].getUIntLong();
+	}, 0ULL);
+};
+
+void Exchange::processWireTransfer(const WireIdent &wident) {
+
+	json::Value pinfo = json::Object{
+		{"date",wident.date},
+		{"timestamp",wident.time},
+		{"ref", wident.ref},
+		{"amount", wident.amount},
+		{"ident", wident.ident}
+	};
+
+	couchit::Result res (db.createQuery(open_trades_view).key({wident.paid, wident.connection}).includeDocs().exec());
+	for (couchit::Row rw: res) {
+		std::string_view mode = rw.value[0].getString();
+		if (mode == "refund") {
+			couchit::Document doc (rw.doc);
+			std::unordered_map<json::Value, std::uint64_t> toRefund;
+			for (json::Value x: rw.doc["state"]["receive"]) {
+				auto amount = x["amount"].getUIntLong();
+				json::Value ident = x["ident"];
+				auto iter = toRefund.find(ident);
+				if (iter != toRefund.end()) iter->second+=amount; else toRefund.emplace(ident, amount);
+			}
+			for (json::Value x: rw.doc["state"]["refund"]) {
+				auto amount = x["amount"].getUIntLong();
+				json::Value ident = x["ident"];
+				auto iter = toRefund.find(ident);
+				if (iter != toRefund.end()) {
+					if (amount >= iter->second) toRefund.erase(iter);
+					else iter->second-=amount;
+				}
+			}
+			auto iter = toRefund.find(wident.ident);
+			if (iter != toRefund.end()) {
+				auto state = doc.object("state");
+				auto refund = state.array("refund");
+				refund.push_back(pinfo);
+				if (wident.amount >= iter->second) toRefund.erase(iter);
+				else iter->second -= wident.amount;
+			}
+			if (toRefund.empty()) {
+				doc.set("status", strTradeState[TradeState::canceled]);
+				doc.set("status_timestamp", wident.time);
+			}
+			try {
+				db.put(doc);
+				return;
+			} catch (couchit::UpdateException &e) {
+				if (e.getError(0).isConflict()) {
+					return processWireTransfer(wident);
+				}
+				throw;
+			}
+
+		} else {
+			//whether other side list has been specified
+			//check whether other side is listed in connections
+			if (!wident.other_connections.empty()) {
+				json::String otherConn = rw.value[1].toString();
+				auto conn_match = std::find(wident.other_connections.begin(), wident.other_connections.end(), otherConn);
+				if (conn_match == wident.other_connections.end()) {
+					//if not, continue
+					continue;
+				}
+			}
+
+			//there should be at least one payment identification!
+			if (wident.ref.defined() || wident.ss.defined() || wident.vs.defined()) {
+				auto wire = rw.doc["wire"];
+				if ((!wident.ref.defined() || wident.ref.getString().find(wire["ref"].getString()) != std::string_view::npos)
+					&& (!wident.ss.defined() || wident.ss == wire["ss"])
+					&& (!wident.vs.defined() || wident.vs == wire["vs"]))
+				{
+
+					//payment side matches;
+					couchit::Document doc (rw.doc);
+					if (mode == "buyer") {
+						auto state = doc.object("state");
+						auto send = state.array("send");
+						send.push_back(pinfo);
+
+					}
+					if (mode == "seller") {
+						auto state = doc.object("state");
+						auto recv = state.array("receive");
+						recv.push_back(pinfo);
+					}
+					auto sent = sumAmount(doc["state"]["send"]);
+					auto recv = sumAmount(doc["state"]["receive"]);
+					auto need = wire["amount"].getUIntLong();
+					bool isfilled = sent == recv && recv >= need && recv <= need+need/1000;
+					TradeState st = strTradeState[rw.doc["status"].getString()];
+					TradeState newst = st;
+
+					switch (st) {
+					case TradeState::open:
+					case TradeState::open_send:
+					case TradeState::open_recv:
+						if (isfilled) newst = TradeState::filled;
+						else if (recv > 0) newst = TradeState::open_send;
+						else if (sent > 0) newst = TradeState::open_recv;
+						break;
+					case TradeState::attantion:
+						if (isfilled) newst = TradeState::filled;
+						break;
+					case TradeState::canceled:
+						if (recv > 0) newst = TradeState::attantion;
+						break;
+					default:
+						continue;
+					}
+					if (st != newst) {
+						doc.set("status", strTradeState[newst]);
+						doc.set("status_timestamp", wident.time);
+					}
+					try {
+						db.put(doc);
+						return;
+					} catch (couchit::UpdateException &e) {
+						if (e.getError(0).isConflict()) {
+							return processWireTransfer(wident);
+						}
+						throw;
+					}
+				}
+			}
+		}
+	}
 }
 
 bool Exchange::cmpOpenTrades(const OpenTrade &a, const OpenTrade &b) {
@@ -387,6 +518,15 @@ void Exchange::processTimeouts(const std::chrono::system_clock::time_point &tp) 
 		openTrades.pop_back();
 		processTimeoutedTrade(tradeId,tp);
 	}
+}
+
+
+bool Exchange::isStillActiveConnection(const json::String &connection) const {
+	couchit::Result res(db.createQuery(open_trades_view).keys({
+		{true, connection},
+		{false, connection}
+	}).exec());
+	return !res.empty();
 }
 
 void Exchange::processTimeoutedTrade(const json::String &id, const std::chrono::system_clock::time_point &tp) {

@@ -59,6 +59,7 @@ public:
 protected:
 
 	mutable userver::HttpJsonRpcClient rpc_client;
+	std::string authline;
 
 };
 
@@ -87,10 +88,12 @@ public:
 
 	static std::size_t start(ondra_shared::SharedObject<WalletControl> me, ondra_shared::Scheduler sch);
 
+	///manually check state (can be called from scheduler)
+	void checkState();
+
 
 protected:
 
-	void checkState();
 
 	PaymentCallback cb;
 	WalletMonitor wm;

@@ -9,6 +9,7 @@
 #include <shared/logOutput.h>
 #include "wallet.h"
 
+using ondra_shared::logDebug;
 using ondra_shared::logError;
 
 
@@ -28,14 +29,20 @@ std::string createAuthLine(const WalletConfig &cfg) {
 
 Wallet::Wallet(const WalletConfig &cfg, userver::HttpClientCfg &&httpc)
 :rpc_client(std::move(httpc), cfg.url)
+,authline(createAuthLine(cfg))
 {
 	rpc_client.setHeaders({
-		{"Authorization",createAuthLine(cfg)}
+		{"Authorization",authline}
 	});
 }
 
+static json::Value throwError(const json::RpcResult &res) {
+	if (res.isError()) throw std::runtime_error(res.toString().str());
+	else return res;
+}
+
 json::Value Wallet::listRequests() const {
-	return rpc_client("list_requests", json::array);
+	return throwError(rpc_client("list_requests", json::array));
 }
 
 char *numToText(char *buff, std::uint64_t amount, int zeroes) {
@@ -63,15 +70,15 @@ json::Value satoshiToBTC(Satoshi amount) {
 }
 
 json::Value Wallet::addRequest(Satoshi amount, const json::String &message) {
-	return rpc_client("add_request", {satoshiToBTC(amount), message, 24*60*60*7} );
+	return throwError(rpc_client("add_request", {satoshiToBTC(amount), message, 24*60*60*7} ));
 }
 
 json::Value Wallet::addLnRequest(Satoshi amount, const json::String &message) {
-	return rpc_client("add_lightning_request", {satoshiToBTC(amount), message});
+	return throwError(rpc_client("add_lightning_request", {satoshiToBTC(amount), message}));
 }
 
 json::Value Wallet::removeRequest(const json::String &reqId) {
-	return rpc_client("rmrequest", json::Value(json::array,{reqId}));
+	return throwError(rpc_client("rmrequest", json::Value(json::array,{reqId})));
 }
 
 WalletControl::WalletControl(const WalletConfig &cfg, userver::HttpClientCfg &&httpc, PaymentCallback &&cb, WalletMonitor &&wm)
@@ -90,6 +97,7 @@ static std::chrono::system_clock::time_point expiration(json::Value r) {
 Invoice WalletControl::createInvoice(bool lightning, Satoshi amount, const json::String &message) {
 	if (lightning) {
 		json::Value r = addLnRequest(amount, message);
+		logDebug("$1", r.toString().str());
 		return {
 			r["rhash"].toString(),
 			r["invoice"].toString(),
@@ -169,7 +177,7 @@ void WalletControl::checkState() {
 }
 
 json::Value Wallet::balance() const {
-	return rpc_client("getbalance", json::array);
+	return throwError(rpc_client("getbalance", json::array));
 }
 
 json::Value Wallet::decodeInvoice(const json::String &invoice) const {
